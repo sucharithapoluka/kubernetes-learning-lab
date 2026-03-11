@@ -267,8 +267,6 @@ kube-proxy updates iptables rules
      ↓
 Service traffic routed to pods
 
-![alt text](image.png)
-
 
 
 
