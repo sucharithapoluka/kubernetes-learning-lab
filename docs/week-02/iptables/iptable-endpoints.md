@@ -2,7 +2,7 @@
 
 ## Objective
 
-Understand how **Kubernetes Services route traffic to Pods** using **kube-proxy and iptables**.
+Understand how **Kubernetes Services route traffic to Pods using kube-proxy and iptables**.
 
 This lab demonstrates:
 
@@ -15,9 +15,7 @@ This lab demonstrates:
 
 # Lab Environment
 
-Cluster created using **kind**.
-
-Check the cluster:
+Check cluster information:
 
 ```bash
 kind get clusters
@@ -47,7 +45,7 @@ These Pod IPs become Service Endpoints.
 
 Step 2 — Create Service
 
-Expose the deployment as a ClusterIP service.
+Expose the deployment as a ClusterIP Service.
 
 kubectl expose deployment nginx-demo --port=80
 
@@ -64,7 +62,7 @@ The Service now routes traffic to the nginx pods.
 
 Step 3 — Observe iptables Rules
 
-Enter the kind control-plane node container:
+Enter the kind control-plane node container.
 
 docker exec -it iptables-lab-control-plane sh
 
@@ -103,7 +101,7 @@ Check pods again:
 
 kubectl get pods -o wide
 
-Example:
+Example output:
 
 NAME                        READY   STATUS    IP
 nginx-demo-aaaaa            1/1     Running   10.244.0.14
@@ -325,9 +323,6 @@ HTTP Testing with wget
 Send HTTP request to service:
 
 wget -qO- nginx-demo
-
-Explanation:
-
 Option	Meaning
 wget	HTTP client
 -q	quiet mode
