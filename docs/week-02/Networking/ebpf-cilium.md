@@ -1,298 +1,368 @@
-eBPF & Cilium — Kubernetes Networking (Beginner Notes)
+# eBPF & Cilium — Kubernetes Networking
 
-This document explains:
+## Table of Contents
+- [What is eBPF?](#what-is-ebpf)
+- [Why eBPF Exists](#why-ebpf-exists)
+- [Map Lookup Concept](#map-lookup-concept)
+- [Packet Flow Using eBPF](#packet-flow-using-ebpf)
+- [What is Cilium?](#what-is-cilium)
+- [Kubernetes Networking With Cilium](#kubernetes-networking-with-cilium)
+- [iptables vs eBPF](#iptables-vs-ebpf)
+- [eBPF Hook Points](#ebpf-hook-points)
+- [Security Policies in Cilium](#security-policies-in-cilium)
+- [Observability with Hubble](#observability-with-hubble)
+- [Example Microservice Traffic](#example-microservice-traffic)
+- [Quick Recall](#quick-recall)
 
-What eBPF is
+---
 
-Why Cilium uses eBPF
+## What is eBPF?
 
-How map lookups work
+**eBPF** (Extended Berkeley Packet Filter) is a Linux kernel technology that allows programs to run inside the kernel safely.
 
-How traffic flows inside the kernel
+### Key Points
+- Instead of sending packets to userspace tools, the kernel itself processes networking logic
+- eBPF can be used for:
+  - Networking
+  - Security enforcement
+  - Monitoring
+  - Observability
+  - Tracing
 
-How Cilium improves networking & security
+---
 
-1. What is eBPF?
+## Why eBPF Exists
 
-eBPF (Extended Berkeley Packet Filter) is a Linux kernel technology that allows programs to run inside the kernel safely.
-
-Instead of sending packets to userspace tools, the kernel itself processes networking logic.
-
-eBPF can be used for:
-
-networking
-
-security enforcement
-
-monitoring
-
-observability
-
-tracing
-
-2. Why eBPF Exists
+### Traditional Linux Networking Problem
 
 Traditional Linux networking tools use rule-based processing.
 
-Example (iptables):
-
+#### Example: iptables
+```
 packet
- ↓
+  ↓
 rule1
 rule2
 rule3
 rule4
 ...
 match
+```
 
-Problem:
+### The Problem
+- **More rules → slower processing**
+- Large Kubernetes clusters may create thousands of rules
+- This creates performance bottlenecks
 
-More rules → slower processing
+### The Solution
+eBPF solves this using **map lookups** (hash tables) instead of sequential rule scanning.
 
-Large Kubernetes clusters may create thousands of rules.
+---
 
-eBPF solves this using map lookups (hash tables).
+## Map Lookup Concept
 
-3. Map Lookup Concept (Very Important)
+> **Very Important Concept**
 
-eBPF stores networking data inside BPF Maps.
+eBPF stores networking data inside **BPF Maps**. Think of this like a HashMap or dictionary.
 
-Think of this like a HashMap / dictionary.
-
-Example map:
-
+### Example Map Structure
+```
 Key                Value
 --------------------------------
 Service IP         Pod IPs
 
-Example:
-
 10.96.0.10 → [10.244.1.5, 10.244.2.7]
+```
 
-Request arrives:
+### How It Works
 
+**When a request arrives:**
+```
 curl 10.96.0.10
+```
 
-Kernel performs lookup:
+**The kernel performs a lookup:**
+```
+lookup(10.96.0.10) → 10.244.2.7
+```
 
-lookup(10.96.0.10)
+**Result:** Packet is forwarded to the selected pod.
 
-Result:
+### Why This is Fast
+- **HashMap lookup = O(1) time complexity**
+- Instead of scanning thousands of rules sequentially
+- Constant time regardless of the number of entries
 
-10.244.2.7
+---
 
-Packet forwarded to the selected pod.
+## Packet Flow Using eBPF
 
-Why this is fast
-HashMap lookup = O(1)
+When a packet arrives, here's the processing flow:
 
-Instead of scanning thousands of rules.
-
-4. Packet Flow Using eBPF
-
-When a packet arrives:
-
+```
 Packet
- ↓
+  ↓
 Linux Kernel
- ↓
-eBPF program
- ↓
+  ↓
+eBPF Program
+  ↓
 BPF Map Lookup
- ↓
+  ↓
 Decision (route / allow / deny)
+```
 
-Example:
+### Example
+```
+Service IP → Pod IP lookup
+```
 
-Service IP → Pod IP
-5. What is Cilium?
+---
 
-Cilium is a Kubernetes CNI that uses eBPF for networking and security.
+## What is Cilium?
 
-It replaces:
+**Cilium** is a Kubernetes CNI (Container Network Interface) that uses eBPF for networking and security.
 
-kube-proxy
-iptables
+### What It Replaces
+- `kube-proxy`
+- `iptables`
 
-Meaning traffic routing happens using kernel-level eBPF programs.
+### Key Benefit
+Traffic routing happens using kernel-level eBPF programs, eliminating the need for traditional userspace tools.
 
-6. Kubernetes Networking With Cilium
+---
 
-Traditional Kubernetes networking:
+## Kubernetes Networking With Cilium
 
+### Traditional Kubernetes Networking
+```
 Client
- ↓
+  ↓
 Service
- ↓
+  ↓
 kube-proxy
- ↓
+  ↓
 iptables rules
- ↓
+  ↓
 Pod
+```
 
-Cilium networking:
-
+### Cilium Networking
+```
 Client
- ↓
+  ↓
 Service
- ↓
-eBPF program
- ↓
-BPF map lookup
- ↓
+  ↓
+eBPF Program
+  ↓
+BPF Map Lookup
+  ↓
 Pod
+```
 
-This removes the need for iptables rule scanning.
+**Advantage:** This removes the need for iptables rule scanning, significantly improving performance.
 
-7. iptables vs eBPF
-Feature	iptables	eBPF
-Processing	rule matching	map lookup
-Speed	slower	very fast
-Scalability	limited	very high
-Used by	kube-proxy	Cilium
+---
 
-Example comparison:
+## iptables vs eBPF
 
-iptables:
+| Feature | iptables | eBPF |
+|---------|----------|------|
+| Processing | Rule matching | Map lookup |
+| Speed | Slower | Very fast |
+| Scalability | Limited | Very high |
+| Used by | kube-proxy | Cilium |
 
+### Visual Comparison
+
+**iptables:**
+```
 packet
- ↓
+  ↓
 rule1
 rule2
 rule3
 rule4
 ...
+```
 
-eBPF:
-
+**eBPF:**
+```
 packet
- ↓
+  ↓
 lookup(service_ip)
- ↓
+  ↓
 pod
-8. eBPF Hook Points (Where Programs Attach)
+```
+
+---
+
+## eBPF Hook Points
 
 eBPF programs attach to different points in the Linux networking stack.
 
-Important hook points:
+### Important Hook Points
 
-Hook	Purpose
-XDP	earliest packet processing
-TC	traffic control
-Socket hooks	application-level traffic
+| Hook | Purpose |
+|------|---------|
+| **XDP** | Earliest packet processing (at NIC level) |
+| **TC** | Traffic control (after kernel stack) |
+| **Socket hooks** | Application-level traffic |
 
-Typical packet path:
-
+### Typical Packet Path
+```
 Network Card
- ↓
-XDP hook
- ↓
-Linux network stack
- ↓
-TC hook
- ↓
-BPF map lookup
- ↓
-Pod network interface
- ↓
-Pod container
-9. Security Policies in Cilium
+  ↓
+XDP Hook
+  ↓
+Linux Network Stack
+  ↓
+TC Hook
+  ↓
+BPF Map Lookup
+  ↓
+Pod Network Interface
+  ↓
+Pod Container
+```
+
+---
+
+## Security Policies in Cilium
 
 Cilium can enforce policies at multiple layers.
 
-Layer 3 Policy (IP Level)
+### Layer 3 Policy (IP Level)
 
-Controls which pods can talk to which pods.
+Controls which pods can communicate with which pods.
 
-Example:
+**Example:**
+```
+frontend → backend      ✓ allowed
+frontend → database     ✗ denied
+```
 
-frontend → backend allowed
-frontend → database denied
-Layer 4 Policy (Port Level)
+### Layer 4 Policy (Port Level)
 
 Controls which ports are allowed.
 
-Example:
+**Example:**
+```
+frontend → backend TCP 80   ✓ allowed
+frontend → backend TCP 22   ✗ denied
+```
 
-frontend → backend TCP 80 allowed
-frontend → backend TCP 22 denied
-Layer 7 Policy (Application Level)
+### Layer 7 Policy (Application Level)
 
-Controls application requests (HTTP APIs).
+Controls application requests at the HTTP/API level.
 
-Example:
+**Example:**
+```
+GET    /products   ✓ allowed
+POST   /login      ✓ allowed
+DELETE /users      ✗ denied
+```
 
-Allow  : GET /products
-Allow  : POST /login
-Deny   : DELETE /users
+**Benefit:** API-level security granularity.
 
-This allows API-level security.
+---
 
-10. Observability with Hubble
+## Observability with Hubble
 
-Cilium provides a tool called Hubble.
+Cilium provides a tool called **Hubble** for real-time network flow visualization.
 
-Hubble shows real-time network flows.
+### Example Output
+```
+frontend → backend   ✓ allowed
+backend → database   ✓ allowed
+frontend → database  ✗ denied
+```
 
-Example output:
+### Benefits
+- Visualize service communication patterns
+- Debug network issues
+- Security monitoring and compliance
 
-frontend → backend   allowed
-backend → database   allowed
-frontend → database  denied
+---
 
-Benefits:
+## Example Microservice Traffic
 
-visualize service communication
-
-debug network issues
-
-security monitoring
-
-11. Example Microservice Traffic
-
-Example application architecture:
-
+### Example Application Architecture
+```
 User
- ↓
+  ↓
 Frontend
- ↓
+  ↓
 API Gateway
- ↓
+  ↓
 Auth Service
- ↓
+  ↓
 Payment Service
- ↓
+  ↓
 Database
+```
 
-Example security policies:
+### Example Security Policies
+```
+Frontend → API Gateway      ✓ allowed
+API Gateway → Auth          ✓ allowed
+API Gateway → Payment       ✓ allowed
+Payment → Database          ✓ allowed
+Frontend → Database         ✗ denied
+```
 
-Frontend → API Gateway allowed
-API Gateway → Auth allowed
-API Gateway → Payment allowed
-Payment → Database allowed
-Frontend → Database denied
+### Security Principle
+This approach is called **Zero Trust Networking**:
+- Nothing is trusted by default
+- All connections must be explicitly allowed
+- Least privilege principle applied
 
-This approach is called:
+---
 
-Zero Trust Networking
-12. Quick Recall (Interview Summary)
-eBPF
-Linux kernel technology
-for fast networking and security
-Cilium
-Kubernetes CNI using eBPF
-Key Advantage
-iptables → sequential rules
-eBPF → map lookup
-Layer Security
-L3 → IP communication
-L4 → Port communication
-L7 → Application request filtering
-13. One-Line Mental Model
-iptables = rule scanning
-eBPF = hash map lookup
+## Quick Recall
 
-or
+### eBPF
+- Linux kernel technology
+- Fast networking and security
+- Uses hash map lookups instead of rule scanning
 
-Old networking → rule based
-Modern networking → program based
+### Cilium
+- Kubernetes CNI using eBPF
+- Replaces kube-proxy and iptables
+- Enables high-performance, secure networking
+
+### Key Advantage
+```
+itables → sequential rule scanning (slow)
+eBPF     → map lookup O(1) (fast)
+```
+
+### Security Layers
+- **L3** → IP communication policies
+- **L4** → Port-based policies
+- **L7** → Application/API request filtering
+
+---
+
+## One-Line Mental Models
+
+> **iptables = rule scanning**  
+> **eBPF = hash map lookup**
+
+---
+
+> **Old networking → rule based**  
+> **Modern networking → program based**
+
+---
+
+## Interview Summary
+
+| Concept | Description |
+|---------|-------------|
+| **eBPF** | Kernel technology enabling fast packet processing via hash maps |
+| **Cilium** | CNI that leverages eBPF for networking and security policies |
+| **Key Advantage** | O(1) map lookups vs O(n) rule matching |
+| **Use Cases** | Networking, security, observability, tracing |
+| **Replaces** | kube-proxy and iptables |
+| **Security Model** | Zero Trust Networking with L3/L4/L7 policies |
+| **Observability** | Hubble provides real-time network flow visualization |
