@@ -1,0 +1,156 @@
+# Kubernetes Network Policies – Ingress vs Egress vs EgressDeny
+
+This document explains how **network policies control traffic between pods and external systems in Kubernetes**.
+
+---
+
+# Core Idea
+
+Both **Ingress** and **Egress** rules allow traffic, but **they control different directions of traffic**.
+
+| Policy Type | Purpose |
+|---|---|
+| **Ingress** | Allows traffic **coming INTO a pod** |
+| **Egress** | Allows traffic **leaving FROM a pod** |
+| **EgressDeny** | Explicitly **blocks outgoing traffic** from a pod |
+
+Key point:
+
+
+Ingress and Egress allow traffic,
+but the direction they control is different.
+EgressDeny explicitly restricts traffic.
+
+
+---
+
+# 1️⃣ Ingress Rule (Traffic Coming Into a Pod)
+
+### Example
+
+```yaml
+endpointSelector:
+  matchLabels:
+    app: backend
+
+ingress:
+- fromEndpoints:
+  - matchLabels:
+      app: frontend
+Meaning
+Part	What it means
+endpointSelector	Destination pod (backend)
+fromEndpoints	Source pod (frontend)
+Traffic Flow
+frontend pod  ─────► backend pod
+        (source)       (destination)
+
+✔ Allowed
+
+But:
+
+random pod ─────► backend pod
+
+❌ Blocked
+
+Rule Interpretation
+endpointSelector → destination
+fromEndpoints → source
+2️⃣ Egress Rule (Traffic Going Out of a Pod)
+Example
+endpointSelector:
+  matchLabels:
+    app: backend
+
+egress:
+- toEndpoints:
+  - matchLabels:
+      app: database
+Meaning
+Part	What it means
+endpointSelector	Source pod (backend)
+toEndpoints	Destination pod (database)
+Traffic Flow
+backend pod ─────► database pod
+      (source)        (destination)
+
+✔ Allowed
+
+3️⃣ Egress Deny (Explicit Traffic Restriction)
+
+Cilium supports explicit deny rules using egressDeny.
+
+This is used to block specific outgoing traffic from a pod.
+
+Example
+
+Block frontend from accessing the database.
+
+endpointSelector:
+  matchLabels:
+    app: frontend
+
+egressDeny:
+- toEndpoints:
+  - matchLabels:
+      app: database
+Result
+Source Pod	Destination Pod	Result
+frontend	backend	✔ allowed
+frontend	database	❌ denied
+Traffic Flow
+frontend pod ─────► database pod
+        ❌ blocked
+4️⃣ Quick Comparison
+Rule Type	endpointSelector	Other field
+Ingress	Destination pod	fromEndpoints = Source
+Egress	Source pod	toEndpoints = Destination
+EgressDeny	Source pod	Blocks destination
+5️⃣ Easy Way to Remember
+Ingress
+Someone → My Pod
+
+Policy is placed on the destination pod.
+
+endpointSelector = my pod
+fromEndpoints = who can access me
+Egress
+My Pod → Someone
+
+Policy is placed on the source pod.
+
+endpointSelector = my pod
+toEndpoints = where I can go
+6️⃣ Visual Summary
+Ingress
+frontend ─────► backend
+ source         destination
+
+fromEndpoints   endpointSelector
+Egress
+backend ─────► database
+ source         destination
+
+endpointSelector  toEndpoints
+7️⃣ Traffic Types Controlled by Network Policies
+Traffic Type	Direction	Controlled By	Example	Explanation
+Pod → Pod	Internal cluster traffic	Ingress or Egress	frontend → backend	Backend ingress allows frontend
+Pod → External Internet	Outgoing traffic	Egress	backend → github.com	Backend allowed to access external services
+External → Pod	Incoming traffic	Ingress	User → frontend	Internet can reach frontend pod
+Pod → Cluster Services	Internal service access	Egress	pod → CoreDNS	Pod allowed to resolve DNS
+Pod → Database	Internal cluster traffic	Egress or Ingress	backend → database	Backend allowed to access DB
+Random Pod → Backend	Internal cluster traffic	Ingress	random → backend	Blocked if not allowed
+8️⃣ Direction Visualization
+Flow	Checked Policy
+frontend → backend	Backend Ingress
+backend → database	Backend Egress
+Internet → frontend	Frontend Ingress
+pod → internet	Pod Egress
+9️⃣ Important Rule
+
+Traffic works only if both sides allow it.
+
+Source	Destination	Result
+Egress ✔	Ingress ✔	Traffic Allowed
+Egress ❌	Ingress ✔	Blocked
+Egress ✔	Ingress ❌	Blocked
